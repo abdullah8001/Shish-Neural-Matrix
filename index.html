@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Mega Matrix - Hands & Face Control</title>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+    <style>
+        body { margin: 0; overflow: hidden; background: #000; font-family: 'Segoe UI', sans-serif; }
+        #start-btn {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            padding: 15px 40px; font-size: 22px; background: #00f2ff; border: none;
+            border-radius: 50px; cursor: pointer; z-index: 1000; font-weight: bold;
+            box-shadow: 0 0 30px #00f2ff; transition: 0.3s;
+        }
+        #start-btn:hover { transform: translate(-50%, -50%) scale(1.1); background: #fff; }
+        
+        .ui-panel {
+            position: absolute; top: 20px; left: 20px;
+            background: rgba(0, 0, 0, 0.8); border: 2px solid #00f2ff;
+            border-radius: 15px; padding: 20px; color: #fff; z-index: 100;
+            max-width: 320px; box-shadow: 0 0 15px rgba(0, 242, 255, 0.3);
+        }
+
+        h2 { margin: 0 0 10px 0; color: #00f2ff; font-size: 1.2em; text-transform: uppercase; border-bottom: 1px solid #333; }
+        .status { color: #ffeb3b; font-weight: bold; margin-bottom: 10px; font-size: 14px; }
+        .controls { font-size: 12px; line-height: 1.5; color: #ccc; }
+        b { color: #00f2ff; }
+
+        #video-container { position: absolute; bottom: 20px; right: 20px; width: 220px; height: 160px; border: 2px solid #00f2ff; border-radius: 12px; overflow: hidden; box-shadow: 0 0 15px #00f2ff; }
+        video { transform: scaleX(-1); width: 100%; height: 100%; object-fit: cover; }
+    </style>
+</head>
+<body>
+
+    <button id="start-btn">BOOT SYSTEM AI</button>
+
+    <div class="ui-panel">
+        <h2>AI Particle Matrix v3</h2>
+        <div id="status" class="status">Status: Offline</div>
+        <div class="controls">
+            🖐️ <b>1-5 Fingers:</b> Flower, Galaxy, DNA, Heart, Sphere<br>
+            👌 <b>OK Sign:</b> Vortex / Black Hole<br>
+            👍 <b>Thumb Up:</b> Toggle 3D Robot Mode<br>
+            🎭 <b>Face Move:</b> Control Particles/Robot<br>
+            😲 <b>Mouth Open:</b> Firework Blast<br>
+            😉 <b>Blink:</b> Change Color Palette
+        </div>
+    </div>
+
+    <div id="video-container"><video id="input_video"></video></div>
+
+    <script>
+        const videoElement = document.getElementById('input_video');
+        const statusElement = document.getElementById('status');
+        const startBtn = document.getElementById('start-btn');
+
+        // --- Three.js Setup ---
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        scene.add(new THREE.AmbientLight(0xffffff, 0.7));
+        const pointLight = new THREE.PointLight(0x00f2ff, 1, 100);
+        pointLight.position.set(5, 5, 5);
+        scene.add(pointLight);
+
+        // --- Particles Logic ---
+        const particleCount = 6000;
+        const positions = new Float32Array(particleCount * 3);
+        const targetPositions = new Float32Array(particleCount * 3);
+        const geometry = new THREE.BufferGeometry();
+        
+        for(let i=0; i<particleCount*3; i++) {
+            positions[i] = (Math.random() - 0.5) * 10;
+            targetPositions[i] = positions[i];
+        }
+        
+        geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        const material = new THREE.PointsMaterial({ size: 0.04, color: 0x00f2ff, transparent: true, opacity: 0.8 });
+        const particleSystem = new THREE.Points(geometry, material);
+        scene.add(particleSystem);
+
+        // --- 3D Object ---
+        let robot;
+        let robotMode = false;
+        const loader = new THREE.GLTFLoader();
+        loader.load('https://threejs.org/examples/models/gltf/RobotExpressive/RobotExpressive.glb', (gltf) => {
+            robot = gltf.scene;
+            robot.scale.set(0.4, 0.4, 0.4);
+            robot.visible = false;
+            scene.add(robot);
+        });
+
+        camera.position.z = 5;
+
+        // --- Shapes Math ---
+        function updateShape(type) {
+            for (let i = 0; i < particleCount; i++) {
+                let x, y, z;
+                const t = Math.random() * Math.PI * 2;
+                const u = Math.random() * 2 - 1;
+                const idx = i * 3;
+
+                if (type === 'sphere') {
+                    const r = 3;
+                    x = r * Math.sqrt(1 - u * u) * Math.cos(t);
+                    y = r * Math.sqrt(1 - u * u) * Math.sin(t);
+                    z = r * u;
+                } else if (type === 'heart') {
+                    const a = i / particleCount * Math.PI * 2;
+                    x = 0.15 * (16 * Math.pow(Math.sin(a), 3));
+                    y = 0.15 * (13 * Math.cos(a) - 5 * Math.cos(2*a) - 2 * Math.cos(3*a) - Math.cos(4*a));
+                    z = (Math.random() - 0.5) * 2;
+                } else if (type === 'dna') {
+                    const a = (i / 100) * 10;
+                    const side = i % 2 === 0 ? 1 : -1;
+                    x = Math.cos(a) * side * 2;
+                    y = a - 5;
+                    z = Math.sin(a) * side * 2;
+                } else if (type === 'vortex') {
+                    const r = i * 0.001;
+                    x = r * Math.cos(i * 0.1) * 5;
+                    y = r * Math.sin(i * 0.1) * 5;
+                    z = (i / 100) - 10;
+                } else { // Default Random/Galaxy
+                    x = (Math.random() - 0.5) * 10;
+                    y = (Math.random() - 0.5) * 10;
+                    z = (Math.random() - 0.5) * 10;
+                }
+                targetPositions[idx] = x;
+                targetPositions[idx+1] = y;
+                targetPositions[idx+2] = z;
+            }
+        }
+
+        // --- MediaPipe Setup ---
+        const faceMesh = new FaceMesh({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}` });
+        const hands = new Hands({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}` });
+
+        faceMesh.setOptions({ maxNumFaces: 1, refineLandmarks: true });
+        hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.5 });
+
+        // Hand Results
+        hands.onResults((results) => {
+            if (results.multiHandLandmarks && results.multiHandLandmarks[0]) {
+                const landmarks = results.multiHandLandmarks[0];
+                // Simple finger count logic
+                const fingers = [landmarks[8].y < landmarks[6].y, landmarks[12].y < landmarks[10].y, landmarks[16].y < landmarks[14].y, landmarks[20].y < landmarks[18].y];
+                const count = fingers.filter(v => v).length + (landmarks[4].x < landmarks[3].x ? 1 : 0);
+
+                if (count === 1) updateShape('flower');
+                else if (count === 3) updateShape('dna');
+                else if (count === 4) updateShape('heart');
+                else if (count === 5) updateShape('sphere');
+                
+                // Thumb Up check (rough)
+                if (landmarks[4].y < landmarks[3].y && count === 1) {
+                    robotMode = !robotMode;
+                    if(robot) robot.visible = robotMode;
+                }
+            }
+        });
+
+        // Face Results
+        faceMesh.onResults((results) => {
+            if (results.multiFaceLandmarks && results.multiFaceLandmarks[0]) {
+                statusElement.innerText = "Status: AI System Active ✅";
+                const landmarks = results.multiFaceLandmarks[0];
+                const nose = landmarks[1];
+                const tx = (nose.x - 0.5) * 12;
+                const ty = -(nose.y - 0.5) * 12;
+
+                if (robotMode && robot) {
+                    robot.position.lerp(new THREE.Vector3(tx, ty - 1, 0), 0.1);
+                    robot.rotation.y += 0.05;
+                } else {
+                    particleSystem.position.x = tx * 0.5;
+                    particleSystem.position.y = ty * 0.5;
+                }
+
+                // Mouth Open Firework
+                if (Math.abs(landmarks[13].y - landmarks[14].y) > 0.05) {
+                    material.color.setHex(0xffaa00);
+                    particleSystem.scale.set(1.4, 1.4, 1.4);
+                } else {
+                    material.color.setHex(0x00f2ff);
+                    particleSystem.scale.set(1, 1, 1);
+                }
+            }
+        });
+
+        // --- Start Camera ---
+        startBtn.onclick = async () => {
+            startBtn.style.display = 'none';
+            statusElement.innerText = "Status: Initializing Core...";
+            const cameraHelper = new Camera(videoElement, {
+                onFrame: async () => {
+                    await faceMesh.send({image: videoElement});
+                    await hands.send({image: videoElement});
+                },
+                width: 640, height: 480
+            });
+            cameraHelper.start();
+        };
+
+        // --- Animation ---
+        function animate() {
+            requestAnimationFrame(animate);
+            const posAttr = geometry.attributes.position;
+            for (let i = 0; i < particleCount * 3; i++) {
+                posAttr.array[i] = THREE.MathUtils.lerp(posAttr.array[i], targetPositions[i], 0.05);
+            }
+            posAttr.needsUpdate = true;
+            particleSystem.rotation.y += 0.002;
+            renderer.render(scene, camera);
+        }
+        animate();
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+</html>
